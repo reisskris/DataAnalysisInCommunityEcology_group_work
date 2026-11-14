@@ -1,0 +1,36 @@
+---
+title: "01_Data_cleaning"
+author: "Kristel Reiss"
+date: "2026-11-14"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+## 1. Import data
+```{r}
+read_tab <- function(file) {
+  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
+             stringsAsFactors = FALSE, check.names = FALSE,
+             na.strings = "NA", strip.white = TRUE)
+}
+
+macro_orig <- read_tab("Macroplot_data.txt")
+macro      <- read_tab("Macroplot_data_Rev.txt")   # corrected version is used
+micro      <- read_tab("Microplot_data.txt")
+sites      <- read_tab("Site_variables.txt")
+splist     <- read_tab("Species_list.txt")
+```
+
+## 2. Check the imported data
+Exploring the data frame
+```{r}
+# structural overview
+glimpse(macro_orig)
+glimpse(macro)
+glimpse(micro)
+glimpse(sites)
+glimpse(splist)
+```
+
