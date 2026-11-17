@@ -10,12 +10,14 @@ library(dplyr)
 ```
 ## 1. Import data
 ```{r}
+#Creating a fuction to read in data
+#The data files are in ASCII text, tab delimited
 read_tab <- function(file) {
   read.delim(file.path("Data", file), sep = "\t", header = TRUE,
              stringsAsFactors = FALSE, check.names = FALSE,
              na.strings = "NA", strip.white = TRUE)
 }
-
+#Using the function to import data
 macro_orig <- read_tab("Macroplot_data.txt")
 macro      <- read_tab("Macroplot_data_Rev.txt")   # corrected version is used
 micro      <- read_tab("Microplot_data.txt")
@@ -24,13 +26,76 @@ splist     <- read_tab("Species_list.txt")
 ```
 
 ## 2. Check the imported data
-Exploring the data frame
+Exploring the data frames
+
+### 2.1 Macroplot data
 ```{r}
 # structural overview
 glimpse(macro_orig)
+```
+```{r}
 glimpse(macro)
+```
+Individual botanical identifications and girth data for 61965 individuals of 400 tree and liana species (including one unidentified category) with gbh ≥ 10 cm in 96 1-ha macroplots.
+
+Checking how macro tables differ
+```{r}
+identical(names(macro_orig), names(macro)) #are columns the same?
+all.equal(macro_orig, macro)               #short summary of differences
+```
+Result shows that both files have the same number of rows in the same order but 91 trees have a different species code.
+Looking into which SpCode was changed.
+```{r}
+changed <- which(macro_orig$SpCode != macro$SpCode) #which SpCode code from tables doesnt match
+
+#change results to df
+sp_changes <- data.frame(
+  PlotID   = macro$PlotID[changed],
+  SpCode_orig = macro_orig$SpCode[changed],
+  SpCode_rev  = macro$SpCode[changed]
+)
+
+#how many trees per "old -> new" pair, and in how many plots
+sp_changes %>%
+  count(SpCode_orig, SpCode_rev, name = "n_trees") %>%
+  arrange(desc(n_trees)) #sort to look at the biggest change
+
+sp_changes %>%
+  group_by(SpCode_orig, SpCode_rev) %>%
+  summarise(n_trees = n(), n_plots = n_distinct(PlotID),
+            plots = paste(unique(PlotID), collapse = ", "), .groups = "drop")
+```
+
+```{r}
+#Are the new codes in the species list?
+setdiff(unique(sp_changes$SpCode_rev), splist$SpCode)
+```
+Every corrected species code exists in Species_list.txt, so the revised file is consistent with the species list. 
+
+```{r}
+#Were the OLD codes perhaps not in the species list? (would explain the correction)
+setdiff(unique(sp_changes$SpCode_orig), splist$SpCode)
+
+#Are ALL species codes in the revised macroplot and microplot data in the list?
+setdiff(unique(macro$SpCode), splist$SpCode)
+setdiff(micro$SpCode, splist$SpCode)
+```
+The original file had 6 invalid codes: Artogoss, Ficudrpu, Ipomsp., Lantcaac, Lepideci and Neurmalb. None of them are in the species list.
+
+**We continue using the revised data ("Macroplot_data_Rev.txt").**
+
+### 2.2 Microplot data
+```{r}
 glimpse(micro)
+```
+
+### 2.3 Site data
+```{r}
 glimpse(sites)
+```
+
+### 2.4 Spiecies data
+```{r}
 glimpse(splist)
 ```
 
