@@ -1,0 +1,36 @@
+---
+title: "02_Biodiversity"
+author: "Max Horst Walther"
+date: "2026-11-17"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+
+**Q1. Biodiversity: what drives woody plant diversity across the gradients?**
+Hypothesis: Richness and Shannon diversity rise with rainfall and fall with longer dry seasons, and disturbance lowers diversity. Turnover between plots (as opposed to nestedness) follows the climatic gradient.
+
+## 1. Import data
+```{r}
+#Creating a fuction to read in data
+#The data files are in ASCII text, tab delimited
+read_tab <- function(file) {
+  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
+             stringsAsFactors = FALSE, check.names = FALSE,
+             na.strings = "NA", strip.white = TRUE)
+}
+#Using the function to import data
+macro      <- read_tab("Macroplot_data_Rev.txt")
+micro      <- read_tab("Microplot_data.txt")
+sites      <- read_tab("Site_variables.txt")
+splist     <- read_tab("Species_list.txt")
+```
+
+
+
+
+Richness, Shannon, Simpson (specnumber, diversity). lm/GLM/GAM of diversity against Rain, DryMo, Alt and the number of individuals. 
+
+ANOVA or Kruskal-Wallis across StrucIntegr and ForestType. betapart: turnover vs nestedness, and whether turnover rises with rainfall difference
