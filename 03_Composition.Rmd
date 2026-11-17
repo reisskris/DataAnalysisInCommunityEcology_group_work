@@ -1,0 +1,33 @@
+---
+title: "03_Composition"
+author: "Auli Zingel"
+date: "2026-11-17"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+
+**Q2. Community composition: what structures it more, climate or disturbance?**
+Hypothesis: Rainfall and dry-season length set the main floristic turnover (evergreen → deciduous). Disturbance shifts plots toward deciduous, non-endemic species.
+
+## 1. Import data
+```{r}
+#Creating a fuction to read in data
+#The data files are in ASCII text, tab delimited
+read_tab <- function(file) {
+  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
+             stringsAsFactors = FALSE, check.names = FALSE,
+             na.strings = "NA", strip.white = TRUE)
+}
+#Using the function to import data
+macro      <- read_tab("Macroplot_data_Rev.txt")
+micro      <- read_tab("Microplot_data.txt")
+sites      <- read_tab("Site_variables.txt")
+splist     <- read_tab("Species_list.txt")
+```
+
+DCA for gradient length, which justifies RDA vs CCA for P4. NMDS (Bray–Curtis) with envfit/ordisurf (e.g. a rainfall surface).
+Cluster analysis (hclust, cutree) on Bray–Curtis or Hellinger distances; compare the clusters with ForestType and use envfit species vectors to see which species characterise them. 
+PERMANOVA (adonis2) by disturbance and forest type, with betadisper to check dispersion
