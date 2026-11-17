@@ -19,7 +19,7 @@ read_tab <- function(file) {
 }
 #Using the function to import data
 macro_orig <- read_tab("Macroplot_data.txt")
-macro      <- read_tab("Macroplot_data_Rev.txt")   # corrected version is used
+macro      <- read_tab("Macroplot_data_Rev.txt")
 micro      <- read_tab("Microplot_data.txt")
 sites      <- read_tab("Site_variables.txt")
 splist     <- read_tab("Species_list.txt")
@@ -98,4 +98,17 @@ glimpse(sites)
 ```{r}
 glimpse(splist)
 ```
+Data covers a strong climate gradient, from hyper-wet evergreen forest (≥8,000 mm/yr) to dry deciduous forest (<1,000 mm/yr), also scrublands and degraded forests.
+
+Thoughts:
+1. How does diversity change along the gradient and with disturbance?
+  - Disturbed plots have lower diversity and lower community completeness
+
+2. Environmental PCA?
+
+3. Biodiversity? Shannon/Simpson index..
+
+
+
+
 
