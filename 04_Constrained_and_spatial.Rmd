@@ -1,0 +1,34 @@
+---
+title: "04_Constrained_and_spatial"
+author: "Viktoria Mikša"
+date: "2026-11-17"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+
+**Q3. Space versus environment: is composition mostly environmental filtering or dispersal limitation?**
+Hypothesis: Environment explains more than space alone, but similarity still decays with geographic distance (link to Munoz et al. 2007, 2008).#need to check the link
+
+## 1. Import data
+```{r}
+#Creating a fuction to read in data
+#The data files are in ASCII text, tab delimited
+read_tab <- function(file) {
+  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
+             stringsAsFactors = FALSE, check.names = FALSE,
+             na.strings = "NA", strip.white = TRUE)
+}
+#Using the function to import data
+macro      <- read_tab("Macroplot_data_Rev.txt")
+micro      <- read_tab("Microplot_data.txt")
+sites      <- read_tab("Site_variables.txt")
+splist     <- read_tab("Species_list.txt")
+```
+
+RDA on Hellinger data, or CCA (chosen from P3’s DCA result) with forward selection (ordistep/ordiR2step) and anova.cca tests. 
+varpart of climate, disturbance and space, where space is the scaled coordinates plus their polynomial terms. 
+Mantel test and distance-decay plot. 
+Optional Q3b: Mantel between the macro and micro dissimilarities
