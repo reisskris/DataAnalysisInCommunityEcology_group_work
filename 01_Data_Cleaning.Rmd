@@ -6,7 +6,13 @@ output: html_document
 ---
 
 ```{r}
+#Packages:
 library(dplyr)
+library(ggplot2)
+library(sf)
+#library(rnaturalearth)
+#library(rnaturalearthdata)
+library(patchwork)
 ```
 ## 1. Import data
 ```{r}
@@ -26,7 +32,7 @@ splist     <- read_tab("Species_list.txt")
 ```
 
 ## 2. Check the imported data
-Exploring the data frames
+Exploring the data frames. Expected values come from the metadata
 
 ### 2.1 Macroplot data
 ```{r}
@@ -84,31 +90,330 @@ The original file had 6 invalid codes: Artogoss, Ficudrpu, Ipomsp., Lantcaac, Le
 
 **We continue using the revised data ("Macroplot_data_Rev.txt").**
 
+#### Totals, plots and most abundant species
+```{r}
+# Expected: 61965 individuals, 96 plots, 400 species (incl. unidentified)
+nrow(macro)
+n_distinct(macro$PlotID)
+n_distinct(macro$SpCode)
+```
+Metadata states that there are 400 spieces but we can only find 399. Looning the original file and alis checking if the unidentified category is in the macroplot data.
+```{r}
+#Checking if the species count was already 399 in the original metadata file
+n_distinct(macro_orig$SpCode)
+
+#Checking if the unidentified category in the macroplot data? (expected 59 individuals)
+sum(macro$SpCode == "UnID")
+sum(grepl("^un", macro$SpCode, ignore.case = TRUE))
+
+#How many macroplot species does the species list explain?
+length(intersect(unique(macro$SpCode), splist$SpCode))   # should equal 399
+
+# Species-list entries that occur only in the microplots, or nowhere
+micro_present <- micro$SpCode[rowSums(micro[, -1]) > 0]
+length(setdiff(splist$SpCode, macro$SpCode))                   # not in macroplots
+setdiff(splist$SpCode, union(macro$SpCode, micro_present))     # in neither layer
+```
+The revised macroplot file contains 61,965 individuals in 96 plots and 399 taxa (398 named taxa + the unidentified category, UnID, 59 individuals). The metadata states 400 taxa, but the original file also contains 399, so the difference is an error in the metadata, not in the data. The revision only corrected six misspelled species codes one for one (e.g. Ficudrpu → Ficudrup); no taxa were merged. All 446 entries of the species list occur in the data: 399 in the macroplots and 47 only in the microplots.
+
+```{r}
+#Do plot codes match the site table (both directions)?
+setdiff(unique(macro$PlotID), sites$PlotID)
+setdiff(sites$PlotID, unique(macro$PlotID))
+```
+we can see that every plot in the macroplot data exists in the site table.
+The second shows that Site_variables.txt has a row whose PlotID is an empty string "". Let’s look at that row before deciding what to do with it:
+
+```{r}
+#How many rows does the site table have? (expected 96)
+nrow(sites)
+
+#Which row(s) have an empty PlotID, and what do they contain?
+which(sites$PlotID == "" | is.na(sites$PlotID))
+sites[sites$PlotID == "" | is.na(sites$PlotID), ]
+
+sum(sites$PlotID != "")  #are there 96 real (non-empty) plot codes
+anyDuplicated(sites$PlotID[sites$PlotID != ""]) #are plot id-s unique
+```
+The site table has 98 rows. Rows 97 and 98 have no PlotID
+```{r}
+# Rows 97-98 of Site_variables.txt have no PlotID
+empty_rows <- sites$PlotID == "" | is.na(sites$PlotID)
+stopifnot(all(is.na(sites[empty_rows, ]) | sites[empty_rows, ] == ""))
+sites <- sites[!empty_rows, ] #removing empty rows
+
+nrow(sites)                                     # 96
+setdiff(sites$PlotID, unique(macro$PlotID))     # character(0)
+```
+```{r}
+# Expected: Termpani = 3811, Xylixylo = 3498, Oleadioi = 2311
+macro_sp_tot <- macro %>% count(SpCode, name = "n_ind", sort = TRUE)
+head(macro_sp_tot, 5)
+
+# Expected: 33 species with total abundance of 1
+sum(macro_sp_tot$n_ind == 1)
+
+# Unidentified individuals; metadata uses both "UnID" and "UniID" -> check both
+# Expected: 59 unidentified individuals
+macro_sp_tot %>% filter(grepl("^Un", SpCode))
+grep("^Un", splist$SpCode, value = TRUE)
+```
+```{r}
+# Is Oleadioi also 2366 in the original file?
+sum(macro_orig$SpCode == "Oleadioi")
+
+# Does any species have exactly 2311 individuals? (typo in the metadata?)
+macro_sp_tot %>% filter(n_ind == 2311)
+
+# In how many plots does Oleadioi occur?
+macro %>% filter(SpCode == "Oleadioi") %>% count(PlotID, sort = TRUE) %>% nrow()
+```
+The total of 61,965 individuals, the counts of the two most abundant species (Termpani 3811, Xylixylo 3498), the 33 singleton species and the 59 unidentified individuals all match the metadata. Olea dioica (Oleadioi) has 2366 individuals in both the original and the revised file, while the metadata reports 2311. No species has 2311 individuals. The difference (55) equals the number of plots in which O. dioica occurs, which suggests a counting error in the metadata rather than in the data. 
+
+The unidentified category is coded UnID in the data and in the species list, but UniID in the metadata’s variable definitions.
+
+#### Girth values
+The value 0 in TreeGirth2–TreeGirth5 means the stem does not exist.
+TreeGirth1 must be ≥ 10 cm, and extra stems are listed in decreasing order.
+```{r}
+girth_cols <- paste0("TreeGirth", 1:5)
+
+#Missing values per girth column (should be none)
+colSums(is.na(macro[girth_cols]))
+#No missing values
+```
+```{r}
+#Main stem below the 10 cm threshold (should be 0)
+sum(macro$TreeGirth1 < 10, na.rm = TRUE)
+#yes, it is 0
+```
+```{r}
+#Extra stems between 0 and 10 cm (should be 0)
+sapply(macro[girth_cols[-1]], function(x) sum(x > 0 & x < 10, na.rm = TRUE))
+#yes, it is 0
+```
+```{r}
+#Stems out of decreasing order (should be 0)
+sapply(2:5, function(i) {
+  sum(macro[[girth_cols[i]]] > macro[[girth_cols[i - 1]]], na.rm = TRUE)
+  #yes, it is 0
+})
+```
+```{r}
+#A stem recorded after a missing one, e.g. Girth3 > 0 while Girth2 = 0 (should be 0)
+sapply(3:5, function(i) {
+  sum(macro[[girth_cols[i]]] > 0 & macro[[girth_cols[i - 1]]] == 0, na.rm = TRUE)
+})
+#yes, it is 0
+```
+```{r}
+#Plausibility of the largest trees (girth in cm)
+summary(macro$TreeGirth1) #summary table with column min and max
+macro %>% arrange(desc(TreeGirth1)) %>% head(5) #looking at the max top5 values
+```
+All girth values follow the rules in the metadata: no missing values, all main stems ≥ 10 cm gbh, extra stems either 0 (no stem) or ≥ 10 cm and listed in decreasing order. 
+Girth ranges from 10 to 1048 cm (median 28 cm). 
+The largest trees, a Ficus virens with 3.3 m diameter (BSP36) and three Dysoxylum malabaricum of 2.4–2.7 m diameter (BSP104), are plausible for strangler figs and old-growth wet evergreen forest, so no girth values were changed.
+
 ### 2.2 Microplot data
 ```{r}
 glimpse(micro)
 ```
+Dimensions match the metadata: 334 species (rows) and 97 columns (SpCode + 96 plots).
 
+```{r}
+setdiff(micro$SpCode, splist$SpCode)
+```
+Microplot data uses Lepideci and Neurmalb, but those are not in the species list.
+
+```{r}
+code_fix <- sp_changes %>% distinct(SpCode_orig, SpCode_rev)
+
+# Does the corrected name already exist in micro? (then the rows must be merged)
+micro %>% filter(SpCode %in% c(code_fix$SpCode_orig, code_fix$SpCode_rev)) %>%
+  select(SpCode)
+
+micro <- micro %>%
+  left_join(code_fix, by = c("SpCode" = "SpCode_orig")) %>%
+  mutate(SpCode = coalesce(SpCode_rev, SpCode)) %>%
+  select(-SpCode_rev) %>%
+  group_by(SpCode) %>%
+  summarise(across(everything(), sum), .groups = "drop") %>%
+  as.data.frame()
+
+# Checks after correction
+setdiff(micro$SpCode, splist$SpCode)   # should be character(0)
+dim(micro)                             # 334 x 97 if no rows were merged
+sum(micro[, -1])                       # still 14848
+```
+
+The 2011 revision corrected six misspelled species codes only in the macroplot file. Two of them (Lepideci, Neurmalb) also occur in the microplot file, which was not revised. They were corrected in code using the same mapping as in the revised macroplot file (Lepideci → Lepidefi, Neurmalb → Neurmala).
+
+Looking if the site columns match the PlotIDs of the site table (both directions)?
+```{r}
+micro_sites <- setdiff(names(micro), "SpCode")
+setdiff(micro_sites, sites$PlotID)
+setdiff(sites$PlotID, micro_sites)
+```
+Both lists are empty, so the 96 site columns in the microplot file match the 96 PlotIDs in the site table.
+
+```{r}
+# Duplicated species rows
+micro$SpCode[duplicated(micro$SpCode)]
+```
+List is empty so there are no duplicated species rows.
+```{r}
+# Abundances must be non-negative whole numbers without NA
+micro_mat <- as.matrix(micro[, micro_sites])
+sum(is.na(micro_mat))
+range(micro_mat, na.rm = TRUE)
+all(micro_mat == round(micro_mat), na.rm = TRUE)
+```
+The values are clean and there are no missing values. All are whole numbers, which are ranging from 0 to 224.
+```{r}
+# Expected: 14848 individuals in total
+sum(micro_mat)
+
+# Expected: Psynigr = 749, Aporlind = 624, Dichgelo = 609
+micro_sp_tot <- data.frame(SpCode = micro$SpCode, n_ind = rowSums(micro_mat)) %>%
+  arrange(desc(n_ind))
+head(micro_sp_tot, 5)
+```
+
+```{r}
+# Expected: 50 species with total abundance of 1
+sum(micro_sp_tot$n_ind == 1)
+
+# Species never recorded and plots with no regeneration
+sum(micro_sp_tot$n_ind == 0)
+colnames(micro_mat)[colSums(micro_mat) == 0]
+```
 ### 2.3 Site data
 ```{r}
 glimpse(sites)
 ```
 
+```{r}
+# Expected: 96 unique plots
+nrow(sites)
+sites$PlotID[duplicated(sites$PlotID)]
+
+# Missing values per column (FlorIntegr is NA by design for deciduous types)
+colSums(is.na(sites))
+
+# Column sums given in the metadata vs. observed
+expected_sums <- c(LatDec = 1374.67111, LongDec = 7192.58583, Alt = 51683,
+                   CanoHt = 1786, CanoCov = 4335, Strata = 241, Rain = 301926,
+                   DryMo = 557, StrucIntegr = 181, FlorIntegr = 111)
+observed_sums <- sapply(names(expected_sums),
+                        function(v) sum(sites[[v]], na.rm = TRUE))
+data.frame(expected = expected_sums,
+           observed = round(observed_sums, 5),
+           difference = round(observed_sums - expected_sums, 5))
+```
+
+```{r}
+# Value ranges of the numeric variables
+summary(sites[, c("LatDec", "LongDec", "Alt", "CanoHt", "CanoCov",
+                  "Strata", "Rain", "DryMo")])
+
+# Coordinates outside the study area given in the metadata
+# (74°15'–75°40' E = 74.25–75.667; 13°30'–15°15' N = 13.5–15.25)
+sites %>%
+  filter(!between(LongDec, 74.25, 75.667) | !between(LatDec, 13.5, 15.25)) %>%
+  select(PlotID, ForestDiv, LatDec, LongDec)
+
+# Canopy cover must be 0–100 %
+sites %>% filter(CanoCov < 0 | CanoCov > 100) %>% select(PlotID, CanoCov)
+```
+
+```{r}
+# Categorical codes must match the codes defined in the metadata
+forest_codes <- c("ATT", "DDD", "DDD+P", "DHP", "DP", "KAN",
+                  "LTD", "MSA", "PDH", "PPH")
+soil_codes   <- c("S2", "S3", "S4", "S6", "S7", "S8", "S10", "S11", "S13")
+
+setdiff(unique(sites$ForestType), forest_codes)
+setdiff(unique(sites$Soil), soil_codes)
+setdiff(unique(sites$StrucIntegr), 1:3)
+setdiff(unique(na.omit(sites$FlorIntegr)), 1:3)
+
+table(sites$ForestType, useNA = "ifany")
+table(sites$Soil, useNA = "ifany")
+table(sites$ForestDiv, useNA = "ifany")
+
+# FlorIntegr should be NA exactly for the deciduous types ATT and LTD
+table(ForestType = sites$ForestType, FlorIntegr_NA = is.na(sites$FlorIntegr))
+```
+The site table contains 96 unique plots with valid codes for forest type, soil and integrity classes. The only missing values are in FlorIntegr (28 plots), which are exactly the deciduous types ATT (8) and LTD (20), for which floristic integrity is not defined. Value ranges are plausible (rainfall 776–8340 mm/yr, dry season 4–7 months, altitude 55–1060 m, canopy cover 0–80 %). 
+Some plots lie slightly outside the coordinate range given in the metadata (minimum 13.23° N and 74.15° E, maximum 75.82° E), but within the study districts. 
+The design is unbalanced: forest types range from 24 plots (PDH) to a single plot (DP), so rare types must be merged or excluded in group comparisons. 
+Dry-season length varies little (most plots 6 months), and several plots share identical interpolated rainfall values, which shows that some plots are spatially clustered.
+
 ### 2.4 Spiecies data
 ```{r}
 glimpse(splist)
 ```
-Data covers a strong climate gradient, from hyper-wet evergreen forest (≥8,000 mm/yr) to dry deciduous forest (<1,000 mm/yr), also scrublands and degraded forests.
 
-Thoughts:
-1. How does diversity change along the gradient and with disturbance?
-  - Disturbed plots have lower diversity and lower community completeness
+```{r}
+# Expected: 446 species (incl. unidentified category), codes unique
+nrow(splist)
+splist$SpCode[duplicated(splist$SpCode)]
+splist$Name[duplicated(splist$Name) & !is.na(splist$Name)]
 
-2. Environmental PCA?
+# Expected: 73 lianas (Habit = "L"), 347 evergreen (Pheno = "E"),
+# 103 Western Ghats endemics (WGEnd = 1)
+table(splist$Habit, useNA = "ifany")
+table(splist$Pheno, useNA = "ifany")
+table(splist$WGEnd, useNA = "ifany")
 
-3. Biodiversity? Shannon/Simpson index..
+# Codes are 4 + 4 letters of genus and epithet, except morphospecies,
+# genus-level taxa and the unidentified category -> list the exceptions
+splist %>% filter(nchar(SpCode) != 8) %>% select(SpCode, Name, Family, Habit)
+```
+Each trait column has exactly one NA. It should be unidentified category UnID, which has no species information, as the metadata says. Confirming it in code:
+```{r}
+# The single NA in Habit, Pheno and WGEnd should be the unidentified category
+splist %>% filter(is.na(Habit) | is.na(Pheno) | is.na(WGEnd)) %>%
+  select(SpCode, Name, Habit, Pheno, WGEnd)
+```
 
+The species list contains 446 unique codes and names. The trait counts match the metadata: 73 lianas, 347 evergreen species and 103 Western Ghats endemics. Habit, phenology and endemism are missing only for the unidentified category (UnID).
 
+### 2.5 Consistency between files
+```{r}
+# Species in the list that occur in neither layer (should be none)
+setdiff(splist$SpCode, union(macro$SpCode, micro$SpCode))
 
+# Number of species per layer and in total (uses the corrected micro table)
+micro_present <- micro$SpCode[rowSums(micro[, -1]) > 0]
 
+length(unique(macro$SpCode))                 # 399 macroplot taxa
+length(micro_present)                        # 334 microplot taxa
+length(setdiff(micro_present, macro$SpCode)) # 47 found only in microplots
+length(union(macro$SpCode, micro_present))   # 446 = species list
+```
+The floristic integrity class (FlorIntegr) is defined in the metadata from the share of individuals that belong to deciduous species: 1 = less than 33 %, 2 = 33–66 %, 3 = more than 66 %. We recalculate it from the macroplot data to see whether the published classes are reproducible.
+```{r}
+flor_check <- macro %>%
+  left_join(splist %>% select(SpCode, Pheno), by = "SpCode") %>%
+  group_by(PlotID) %>%
+  summarise(pct_decid = 100 * mean(Pheno == "D", na.rm = TRUE), .groups = "drop") %>%
+  mutate(FlorIntegr_calc = cut(pct_decid, breaks = c(-Inf, 33, 66, Inf),
+                               labels = FALSE)) %>%
+  left_join(sites %>% select(PlotID, ForestType, FlorIntegr), by = "PlotID")
+
+table(published = flor_check$FlorIntegr,
+      calculated = flor_check$FlorIntegr_calc, useNA = "ifany")
+
+# Plots where the published and recalculated class differ
+flor_check %>%
+  filter(!is.na(FlorIntegr), FlorIntegr != FlorIntegr_calc) %>%
+  arrange(PlotID)
+```
+All species in the species list occur in at least one layer: 399 taxa in the macroplots and 47 only in the microplots (446 in total, after correcting the two misspelled microplot codes). The floristic integrity classes could be reproduced exactly from the share of deciduous individuals in the macroplot data: all 68 potentially evergreen plots received the published class, and all 28 deciduous plots (ATT, LTD) contained more than 66 % deciduous individuals, as stated in the metadata.
+
+```{r}
+
+```
 
