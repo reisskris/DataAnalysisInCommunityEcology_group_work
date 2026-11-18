@@ -5,32 +5,61 @@ date: "2026-11-17"
 output: html_document
 ---
 
-```{r}
-library(dplyr)
+NB choose your hypotheses (maybe all is too much). Insturctions were: investigate patterns in biodiversity (e.g., species richness and
+other diversity indices) and their relationships with relevant environmental, spatial, or temporal variables, following your ecological questions <--- Delete this text later.
+
+```{r q1-packages, message=FALSE}
+library(vegan)    
+library(DarkDiv)
 ```
 
 **Q1. Biodiversity: what drives woody plant diversity across the gradients?**
-Hypothesis: Richness and Shannon diversity rise with rainfall and fall with longer dry seasons, and disturbance lowers diversity. Turnover between plots (as opposed to nestedness) follows the climatic gradient.
+ 
+Hypotheses:
 
-## 1. Import data
-```{r}
-#Creating a fuction to read in data
-#The data files are in ASCII text, tab delimited
-read_tab <- function(file) {
-  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
-             stringsAsFactors = FALSE, check.names = FALSE,
-             na.strings = "NA", strip.white = TRUE)
-}
-#Using the function to import data
-macro      <- read_tab("Macroplot_data_Rev.txt")
-micro      <- read_tab("Microplot_data.txt")
-sites      <- read_tab("Site_variables.txt")
-splist     <- read_tab("Species_list.txt")
+1. Species richness and diversity increase with rainfall and decrease with a longer dry season.
+2. Disturbance lowers diversity and community completeness.
+3. Beta diversity differs between forest groups (dry deciduous, moist deciduous, evergreen).
+
+## 1. Load clean data
+
+The raw files were checked and cleaned in `01_Data_Cleaning.Rmd`.
+We use the macroplot data (trees ≥ 10 cm gbh), because it has the most individuals per plot.
+
+```{r q1-load-data}
+load("Data/clean/clean_data.RData", verbose = TRUE)
+
+# All tables have the plots in the same order
+stopifnot(identical(rownames(comm_macro), env$PlotID))
+
+dim(comm_macro) # 96 plots, 398 taxa
+```
+
+## 2. Species richness
+
+```{r q1-richness}
+n_ind    <- rowSums(comm_macro)      # number of trees per plot
+richness <- rowSums(comm_macro > 0)  # number of species per plot
+
+summary(n_ind)
+summary(richness)
+
+plot(sort(richness, decreasing = TRUE),
+     ylab = "Species richness per plot", xlab = "Plot rank")
+```
+## 3. Diversity indices
+
+* Species richness: rare and dominant species count equally.
+* Shannon diversity: rare species contribute moderately.
+* Inverse Simpson diversity: more weight on dominant species.
+
+```{r q1-indices}
+shannon           <- diversity(comm_macro, "shannon")
+inv_simpson       <- diversity(comm_macro, "invsimpson")
+effective_richness <- exp(shannon)              # Shannon as effective number of species
+evenness          <- shannon / log(richness)    # Shannon evenness (0-1)
+
+pairs(data.frame(richness, effective_richness, shannon, inv_simpson, evenness))
 ```
 
 
-
-
-Richness, Shannon, Simpson (specnumber, diversity). lm/GLM/GAM of diversity against Rain, DryMo, Alt and the number of individuals. 
-
-ANOVA or Kruskal-Wallis across StrucIntegr and ForestType. betapart: turnover vs nestedness, and whether turnover rises with rainfall difference
