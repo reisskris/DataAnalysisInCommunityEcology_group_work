@@ -5,29 +5,57 @@ date: "2026-11-17"
 output: html_document
 ---
 
-```{r}
+NB feel free to delete/change anything that is from ##2 (i just cheked if the loading worked). 
+Insturctions were: Community composition: Investigate patterns in taxonomic community composition and their relationships with relevant environmental, spatial, or temporal variables, following your ecological questions. <--- Delete this text later.
+
+```{r q2-packages, message=FALSE}
 library(dplyr)
+library(vegan)
+library(indicspecies)
 ```
 
 **Q2. Community composition: what structures it more, climate or disturbance?**
-Hypothesis: Rainfall and dry-season length set the main floristic turnover (evergreen → deciduous). Disturbance shifts plots toward deciduous, non-endemic species.
 
-## 1. Import data
-```{r}
-#Creating a fuction to read in data
-#The data files are in ASCII text, tab delimited
-read_tab <- function(file) {
-  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
-             stringsAsFactors = FALSE, check.names = FALSE,
-             na.strings = "NA", strip.white = TRUE)
-}
-#Using the function to import data
-macro      <- read_tab("Macroplot_data_Rev.txt")
-micro      <- read_tab("Microplot_data.txt")
-sites      <- read_tab("Site_variables.txt")
-splist     <- read_tab("Species_list.txt")
+Hypotheses:
+
+1. Rainfall and dry-season length set the main floristic turnover (evergreen → deciduous forest).
+2. Disturbance shifts plots toward deciduous and non-endemic species.
+
+## 1. Load clean data
+
+The raw files were checked and cleaned in `01_Data_Cleaning.Rmd`.
+
+```{r q2-load-data}
+load("Data/clean/clean_data.RData", verbose = TRUE)
+
+# All tables have the plots in the same order
+stopifnot(identical(rownames(comm_macro), env$PlotID))
+```
+## 2. Transforming the community data
+
+Abundances are skewed (few very common species, many rare ones), so we use a
+log(x+1) transformation, as in class.
+
+```{r q2-transform}
+hist(comm_macro[comm_macro > 0])          # raw abundances
+hist(log1p(comm_macro[comm_macro > 0]))   # log(x+1)
+
+comm_log <- log1p(comm_macro)
 ```
 
+## 3. Community dissimilarity and clustering
+
+### 3.1 Bray-Curtis distance and hierarchical clustering
+
+Bray-Curtis is bounded between 0 and 1 and does not count shared absences as
+similarity, which suits species-rich data with many zeros.
+
+```{r q2-cluster}
+vd <- vegdist(comm_log, "bray")
+
+o.clu <- hclust(vd, method = "ward.D2")   # Ward: minimises variance within clusters
+plot(as.dendrogram(o.clu), leaflab = "none", main = "Ward clustering (Bray-Curtis)")
+```
 DCA for gradient length, which justifies RDA vs CCA for P4. NMDS (Bray–Curtis) with envfit/ordisurf (e.g. a rainfall surface).
 Cluster analysis (hclust, cutree) on Bray–Curtis or Hellinger distances; compare the clusters with ForestType and use envfit species vectors to see which species characterise them. 
 PERMANOVA (adonis2) by disturbance and forest type, with betadisper to check dispersion
