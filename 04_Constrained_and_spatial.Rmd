@@ -5,27 +5,54 @@ date: "2026-11-17"
 output: html_document
 ---
 
-```{r}
-library(dplyr)
+```{r q3-packages, message=FALSE}
+library(vegan) 
+library(sp) 
 ```
 
 **Q3. Space versus environment: is composition mostly environmental filtering or dispersal limitation?**
 Hypothesis: Environment explains more than space alone, but similarity still decays with geographic distance (link to Munoz et al. 2007, 2008).#need to check the link
 
-## 1. Import data
-```{r}
-#Creating a fuction to read in data
-#The data files are in ASCII text, tab delimited
-read_tab <- function(file) {
-  read.delim(file.path("Data", file), sep = "\t", header = TRUE,
-             stringsAsFactors = FALSE, check.names = FALSE,
-             na.strings = "NA", strip.white = TRUE)
-}
-#Using the function to import data
-macro      <- read_tab("Macroplot_data_Rev.txt")
-micro      <- read_tab("Microplot_data.txt")
-sites      <- read_tab("Site_variables.txt")
-splist     <- read_tab("Species_list.txt")
+## 1. Load clean data
+
+The raw files were checked and cleaned in `01_Data_Cleaning.Rmd`.
+
+```{r q3-load-data}
+load("Data/clean/clean_data.RData", verbose = TRUE)
+
+# All tables have the plots in the same order
+stopifnot(identical(rownames(comm_macro), env$PlotID))
+
+comm_log <- log1p(comm_macro)   # log(x+1) as in class, downweights very common species
+```
+
+## 2. Distance matrices
+
+* Composition: Bray-Curtis distance between plots.
+* Climate: Euclidean distance between plots in scaled rainfall, dry-season length and altitude.
+* Disturbance: difference in structural integrity class (1–3).
+* Space: real distance in km between plot coordinates.
+
+```{r q3-distances}
+Dv   <- vegdist(comm_log, method = "bray")                          # vegetation
+Dcl  <- dist(scale(env[, c("Rain", "DryMo", "Alt")]))               # climate
+Ddis <- dist(env$StrucIntegr)                                       # disturbance
+Dxy  <- as.dist(spDists(as.matrix(env[, c("LongDec", "LatDec")]),
+                        longlat = TRUE))                            # space, km
+
+summary(Dxy)   # distances between plots in km
+```
+
+## 3. Mantel tests
+
+### 3.1 Distance decay: composition vs. geographic distance
+
+```{r q3-distance-decay}
+plot(Dxy, Dv, pch = 16, cex = 0.4, col = rgb(0, 0, 1, 0.2),
+     xlab = "Geographic distance (km)", ylab = "Bray-Curtis dissimilarity")
+
+set.seed(1)
+mantel(Dv, Dxy)
 ```
 
 RDA on Hellinger data, or CCA (chosen from P3’s DCA result) with forward selection (ordistep/ordiR2step) and anova.cca tests. 
