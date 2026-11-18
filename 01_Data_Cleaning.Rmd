@@ -358,27 +358,44 @@ glimpse(splist)
 ```{r}
 # Expected: 446 species (incl. unidentified category), codes unique
 nrow(splist)
-splist$SpCode[duplicated(splist$SpCode)]
-splist$Name[duplicated(splist$Name) & !is.na(splist$Name)]
-
-# Expected: 73 lianas (Habit = "L"), 347 evergreen (Pheno = "E"),
-# 103 Western Ghats endemics (WGEnd = 1)
+splist$SpCode[duplicated(splist$SpCode)] #no duplicates
+splist$Name[duplicated(splist$Name) & !is.na(splist$Name)] #no duplicates
+```
+```{r}
+# Is any old name (Synonym) also listed as a current species name?
+intersect(splist$Synonym, splist$Name)
+```
+```{r}
 table(splist$Habit, useNA = "ifany")
 table(splist$Pheno, useNA = "ifany")
 table(splist$WGEnd, useNA = "ifany")
-
-# Codes are 4 + 4 letters of genus and epithet, except morphospecies,
-# genus-level taxa and the unidentified category -> list the exceptions
-splist %>% filter(nchar(SpCode) != 8) %>% select(SpCode, Name, Family, Habit)
 ```
-Each trait column has exactly one NA. It should be unidentified category UnID, which has no species information, as the metadata says. Confirming it in code:
+Each trait column has exactly one NA. It should unidentified category UnID, which has no species information, as the metadata says. Confirming it in code:
+
 ```{r}
-# The single NA in Habit, Pheno and WGEnd should be the unidentified category
-splist %>% filter(is.na(Habit) | is.na(Pheno) | is.na(WGEnd)) %>%
-  select(SpCode, Name, Habit, Pheno, WGEnd)
+splist %>% filter(is.na(Habit) | is.na(Pheno) | is.na(WGEnd)) %>%   #filter those column where row in NA
+  select(SpCode, Name, Habit, Pheno, WGEnd)                         #show thise columns
 ```
 
-The species list contains 446 unique codes and names. The trait counts match the metadata: 73 lianas, 347 evergreen species and 103 Western Ghats endemics. Habit, phenology and endemism are missing only for the unidentified category (UnID).
+```{r}
+#According to the metadata, a species code is the first 4 letters of the genus plus the first 4 letters of the species epithet
+#Looking at the codes that dont match the metadata description
+splist %>% 
+  filter(nchar(SpCode) != 8) %>%      #count the characters in each code and keep only codes that are not 8 characters long
+  select(SpCode, Name, Family, Habit) #show only these four columns,
+```
+
+We can see misspelled species name in the species list. Strynux has the name “Strychnos nuxNAvomica”. The real name is Strychnos nux-vomica. NA is where the hyphen should be.
+```{r}
+# The species name of Strynux contains "NA" instead of a "-"
+splist %>% filter(SpCode == "Strynux") %>% 
+  select(SpCode, Name)
+
+splist <- splist %>%
+  mutate(Name = sub("nuxNAvomica", "nux-vomica", Name, fixed = TRUE))
+
+splist %>% filter(SpCode == "Strynux") %>% select(SpCode, Name)   # Strychnos nux-vomica
+```
 
 ### 2.5 Consistency between files
 ```{r}
@@ -393,7 +410,8 @@ length(micro_present)                        # 334 microplot taxa
 length(setdiff(micro_present, macro$SpCode)) # 47 found only in microplots
 length(union(macro$SpCode, micro_present))   # 446 = species list
 ```
-The floristic integrity class (FlorIntegr) is defined in the metadata from the share of individuals that belong to deciduous species: 1 = less than 33 %, 2 = 33–66 %, 3 = more than 66 %. We recalculate it from the macroplot data to see whether the published classes are reproducible.
+The floristic integrity class (FlorIntegr) is defined in the metadata from the share of individuals that belong to deciduous species: 1 = less than 33 %, 2 = 33–66 %, 3 = more than 66 %. 
+We recalculate it from the macroplot data to see whether the published classes are reproducible.
 ```{r}
 flor_check <- macro %>%
   left_join(splist %>% select(SpCode, Pheno), by = "SpCode") %>%
@@ -409,11 +427,122 @@ table(published = flor_check$FlorIntegr,
 # Plots where the published and recalculated class differ
 flor_check %>%
   filter(!is.na(FlorIntegr), FlorIntegr != FlorIntegr_calc) %>%
-  arrange(PlotID)
+  arrange(PlotID) #nothing differs - empty tibble
 ```
 All species in the species list occur in at least one layer: 399 taxa in the macroplots and 47 only in the microplots (446 in total, after correcting the two misspelled microplot codes). The floristic integrity classes could be reproduced exactly from the share of deciduous individuals in the macroplot data: all 68 potentially evergreen plots received the published class, and all 28 deciduous plots (ATT, LTD) contained more than 66 % deciduous individuals, as stated in the metadata.
 
-```{r}
 
+**Conculusion**
+
+The data are internally consistent and of good quality. Totals, column sums and trait counts match the metadata, all girth values follow the measurement rules. We found three errors in the data files, which must be corrected in code before analysis, and several inconsistencies in the metadata text, which do not affect the data.
+
+| Problem | File | Correction |
+|---|---|---|
+| 1. Six misspelled species codes (e.g. Ficudrpu, Artogoss; 91 trees) | Macroplot_data.txt | Use the revised file Macroplot_data_Rev.txt |
+| 2. Two of these codes (Lepideci, Neurmalb) remain in the microplot file, which was never revised | Microplot_data.txt | Recode to Lepidefi and Neurmala using the same mapping as the revision |
+| 3. Two empty rows (97–98) at the end of the file | Site_variables.txt | Remove rows without PlotID |
+| 4. Species name "Strychnos nuxNAvomica" | Species_list.txt | Correct to "Strychnos nux-vomica" |
+
+
+**Inconsistencies in the metadata (documented, no change to the data):**
+
+- The macroplots contain 399 taxa (398 + unidentified), not 400 as stated in the metadata.
+- *Olea dioica* (Oleadioi) has 2366 individuals, not 2311. The difference (55) equals the number of plots where it occurs.
+- Several codes are spelled differently in the metadata than in the data: Psynigr (data: Psycnigr), Strobsp1 (Strosp1), Syzisp. (Syzysp.), Calasp (Calasp.) and UniID (UnID).
+- Microplots are described as "0.1 ha" but measure 10 × 10 m = 0.01 ha, so the pooled regeneration sample per plot covers 300 m².
+- Ten plots lie outside the coordinate range given in the metadata, though within the study districts.
+
+
+## 3. Clean data tables
+### 3.1 Site table
+
+```{r}
+env <- sites %>%
+  # numeric plot order: BSP1, BSP2, ... instead of BSP1, BSP10, BSP100
+  arrange(as.numeric(sub("BSP", "", PlotID))) %>%
+  mutate(
+    # forest types ordered from the driest to the wettest (median rainfall)
+    ForestType  = reorder(factor(ForestType), Rain, FUN = median),
+    # three groups with enough plots for group comparisons
+    ForestGroup = factor(case_when(ForestType == "ATT" ~ "Dry deciduous",
+                                   ForestType == "LTD" ~ "Moist deciduous",
+                                   TRUE                ~ "Evergreen"),
+                         levels = c("Dry deciduous", "Moist deciduous", "Evergreen")),
+    # disturbance as labelled factor; StrucIntegr stays numeric (1-3)
+    Disturbance = factor(StrucIntegr, levels = 1:3,
+                         labels = c("Slightly", "Moderately", "Highly")),
+    Soil        = factor(Soil, levels = soil_codes),
+    ForestDiv   = factor(ForestDiv),
+    FlorIntegr  = factor(FlorIntegr, levels = 1:3)   # NA for ATT and LTD by design
+  )
+rownames(env) <- env$PlotID
+
+# Checks
+str(env)
+head(env$PlotID)                          # BSP1, BSP2, BSP3, ...
+levels(env$ForestType)                    # dry -> wet
+table(env$ForestGroup)
+table(env$ForestType, env$Disturbance)    # plots per forest type and disturbance
 ```
+### 3.2 Macroplot community table
+
+The unidentified individuals (UnID, 59 lianas) are removed, because they are not one taxon and would act as an artificial species. Genus-level taxa and morphospecies are kept as single taxa.
+
+```{r}
+#plots x species abundance table of trees >= 10 cm gbh
+macro_clean <- macro %>% filter(SpCode != "UnID")
+
+#table() counts trees per plot and species; plots in the same order as env
+comm_macro <- as.data.frame.matrix(
+  table(factor(macro_clean$PlotID, levels = env$PlotID), macro_clean$SpCode)
+)
+#Checks
+dim(comm_macro)                                 #96 plots x 398 taxa
+sum(comm_macro)                                 #61906 = 61965 - 59 UnID
+identical(rownames(comm_macro), env$PlotID)     #TRUE: same plot order as env
+
+comm_macro[1:5, 1:6]                            #look part of the table
+```
+### 3.3 Microplot community table
+
+The microplot file is stored as species x plots. It is transposed to plots x species, with plots in the same order as the site table. 
+Species codes were already corrected in section 2.2.
+
+```{r}
+#plots x species abundance table of the regeneration layer (gbh < 10 cm, height > 1 m, three 10 x 10 m microplots pooled per plot)
+
+micro_clean <- micro %>% filter(SpCode != "UnID")   #same rule as macroplots
+
+# select plot columns in env order, transpose, use species codes as column names
+comm_micro <- as.data.frame(t(as.matrix(micro_clean[, env$PlotID]))) #plot columns in the order of the site table.
+colnames(comm_micro) <- micro_clean$SpCode
+
+# Checks
+dim(comm_micro)                                 #96 plots x 334 taxa
+sum(comm_micro)                                 #14848
+identical(rownames(comm_micro), env$PlotID)     #TRUE: same plot order as env
+
+comm_micro[1:5, 1:6]                            #look part of the table
+```
+### 3.4 Save the clean data
+
+```{r}
+# All tables must have the same plots in the same order (stops with an error if not)
+stopifnot(identical(rownames(comm_macro), env$PlotID),
+          identical(rownames(comm_micro), env$PlotID))
+
+dir.create("Data/clean", showWarnings = FALSE)
+save(env, macro_clean, comm_macro, comm_micro, splist,
+     file = "Data/clean/clean_data.RData")
+```
+
+**Clean data for the group** — load with `load("Data/clean/clean_data.RData")`:
+
+| Object | Content | Size |
+|---|---|---|
+| `env` | Site table: coordinates, climate, forest type (dry → wet), ForestGroup, Disturbance, soil | 96 plots |
+| `macro_clean` | Tree list with girths (0 = no stem), UnID removed | 61,906 trees |
+| `comm_macro` | Trees ≥ 10 cm gbh, individuals per plot × species | 96 × 398 |
+| `comm_micro` | Regeneration (< 10 cm gbh, > 1 m), individuals per plot × species | 96 × 334 |
+| `splist` | Species traits: name, family, habit, phenology, endemism | 446 taxa |
 
