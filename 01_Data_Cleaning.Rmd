@@ -13,6 +13,7 @@ library(sf)
 #library(rnaturalearth)
 #library(rnaturalearthdata)
 library(patchwork)
+options(useFancyQuotes = FALSE)   # plain quotes in messages (avoids garbled characters on Windows)
 ```
 ## 1. Import data
 ```{r}
@@ -545,4 +546,8 @@ save(env, macro_clean, comm_macro, comm_micro, splist,
 | `comm_macro` | Trees ≥ 10 cm gbh, individuals per plot × species | 96 × 398 |
 | `comm_micro` | Regeneration (< 10 cm gbh, > 1 m), individuals per plot × species | 96 × 334 |
 | `splist` | Species traits: name, family, habit, phenology, endemism | 446 taxa |
+
+```{r}
+
+```
 
