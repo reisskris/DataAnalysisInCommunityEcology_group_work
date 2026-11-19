@@ -10,10 +10,13 @@ output: html_document
 library(dplyr)
 library(ggplot2)
 library(sf)
-#library(rnaturalearth)
-#library(rnaturalearthdata)
 library(patchwork)
 options(useFancyQuotes = FALSE)   # plain quotes in messages (avoids garbled characters on Windows)
+library(geodata) 
+library(ggnewscale)
+library(maps)
+library(ggspatial)
+library(grid)
 ```
 ## 1. Import data
 ```{r}
@@ -547,7 +550,162 @@ save(env, macro_clean, comm_macro, comm_micro, splist,
 | `comm_micro` | Regeneration (< 10 cm gbh, > 1 m), individuals per plot × species | 96 × 334 |
 | `splist` | Species traits: name, family, habit, phenology, endemism | 446 taxa |
 
-```{r}
+## 4. Map of the sampling plots
 
+Calculating the median rainfall depending on the forest type.
+```{r}
+#Forest type dataframe
+forest_names <- data.frame(
+  ForestType = c("ATT", "DDD", "DDD+P", "DHP", "DP", "KAN", "LTD", "MSA", "PDH", "PPH"),
+  Dominant_species = c(
+    "Anogeissus latifolia - Tectona grandis - Terminalia tomentosa",
+    "Dipterocarpus indicus - Diospyros candolleana - Diospyros oocarpa",
+    "Poeciloneuron indicum facies of DDD",
+    "Dipterocarpus indicus - Humboldtia brunonis - Poeciloneuron indicum",
+    "Dipterocarpus indicus - Persea macrantha",
+    "Diospyros spp. - Dysoxylum malabaricum - Persea macrantha (kan forest)",
+    "Lagerstroemia microcarpa - Tectona grandis - Dillenia pentagyna",
+    "Memecylon umbellatum - Syzygium cumini - Actinodaphne angustifolia",
+    "Persea macrantha - Diospyros spp. - Holigarna spp.",
+    "Palaquium ellipticum - Poeciloneuron indicum - Hopea ponga"
+  )
+)
+# Add number of plots and median rainfall, order from dry to wet
+forest_table <- data.frame(
+  ForestType = levels(env$ForestType),
+  n_plots    = as.numeric(table(env$ForestType)),
+  median_rain = as.numeric(tapply(env$Rain, env$ForestType, median))
+)
+forest_table <- merge(forest_table, forest_names, by = "ForestType")
+forest_table <- forest_table[order(forest_table$median_rain), ]
+
+knitr::kable(forest_table, row.names = FALSE,
+             col.names = c("Code", "Plots", "Median rainfall (mm/yr)", "Dominant species"))
 ```
+
+### 4.2 Map of the plots
+
+```{r elevarion-data}
+# Elevation of India, 30 arc-seconds (about 1 km); downloaded once into Data/gis
+dir.create("Data/gis", showWarnings = FALSE)
+elev_india <- geodata::elevation_30s(country = "IND", path = "Data/gis")
+
+# Cut to the extent of map B and convert to a table for ggplot
+elev_study <- terra::crop(elev_india, terra::ext(73.8, 76.1, 13.1, 15.4))
+elev_df <- as.data.frame(elev_study, xy = TRUE)
+names(elev_df) <- c("lon", "lat", "elevation")
+
+summary(elev_df$elevation)   # elevation range in the map area (m)
+```
+```{r map-main, fig.width = 7, fig.height = 6}
+world <- map_data("world")   #country outlines from the maps package as a table
+
+# Scale bar: 50 km in degrees of longitude at the middle latitude of the map
+km_per_degree <- 111.32 * cos(mean(c(13.1, 15.4)) * pi / 180)
+bar_length    <- 50 / km_per_degree   # about 0.46 degrees
+bar_x <- 73.90                        # left end of the scale bar
+bar_y <- 13.22                        # bottom of the scale bar
+arrow_x <- 76.00                      # position of the north arrow
+
+
+#using ggnewscale that allows a second fill scale for the points.
+p_main <- ggplot() +
+  #elevation background (sea has no values -> panel background shows through)
+  geom_raster(data = elev_df, aes(x = lon, y = lat, fill = elevation)) +
+  scale_fill_gradient(low = "tan", high = "#5C4033", name = "Elevation (m)") +
+  #plots: second fill scale, each point with its own black outline
+  new_scale_fill() +
+  geom_point(data = env, aes(x = LongDec, y = LatDec, fill = ForestType),
+             shape = 21, colour = "black", size = 4, stroke = 0.6) +
+  scale_fill_viridis_d(direction = -1, name = "Forest type\n(dry to wet)") +
+  annotate("text", x = 74.2, y = 14.0, label = "Arabian Sea",
+           fontface = "italic", colour = "grey40") +
+  #north arrow
+  annotate("segment", x = arrow_x, xend = arrow_x, y = 15.05, yend = 15.25,
+           arrow = arrow(length = unit(0.3, "cm"), type = "closed"), linewidth = 1) +
+  annotate("text", x = arrow_x, y = 15.31, label = "N", fontface = "bold", size = 5) +
+  #scale bar: black and white halves, 0-25-50 km
+  annotate("rect", xmin = bar_x, xmax = bar_x + bar_length / 2,
+           ymin = bar_y, ymax = bar_y + 0.03, fill = "black", colour = "black") +
+  annotate("rect", xmin = bar_x + bar_length / 2, xmax = bar_x + bar_length,
+           ymin = bar_y, ymax = bar_y + 0.03, fill = "white", colour = "black") +
+  annotate("text", x = c(bar_x, bar_x + bar_length / 2, bar_x + bar_length),
+           y = bar_y - 0.04, label = c("0", "25", "50 km"), size = 3.5) +
+  coord_quickmap(xlim = c(73.8, 76.1), ylim = c(13.1, 15.4), expand = FALSE) +
+  labs(title = "B) 96 forest plots in the central Western Ghats",
+       x = "Longitude (°E)", y = "Latitude (°N)") +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = "#dbe9f6"),        #sea light blue
+        legend.key = element_rect(fill = "white", colour = NA))  #legend boxes white
+
+p_main
+```
+
+
+```{r, fig.width = 5, fig.height = 5}
+india <- world[world$region == "India", ]   # India outline only
+
+p_location <- ggplot() +
+  # neighbouring countries light, India darker
+  geom_polygon(data = world, aes(x = long, y = lat, group = group),
+               fill = "grey92", colour = "grey60") +
+  geom_polygon(data = india, aes(x = long, y = lat, group = group),
+               fill = "tan", colour = "grey40") +
+  # country names
+  annotate("text", x = 78.5, y = 22.5, label = "INDIA", fontface = "bold", size = 4.5) +
+  annotate("text", x = 68.2, y = 27.5, label = "Pakistan", size = 3) +
+  annotate("text", x = 84.0, y = 28.4, label = "Nepal", size = 3) +
+  annotate("text", x = 82.4, y = 7.6,  label = "Sri Lanka", size = 3) +
+  # seas
+  annotate("text", x = 68.5, y = 14.0, label = "Arabian\nSea",
+           fontface = "italic", colour = "steelblue4", size = 3.2) +
+  annotate("text", x = 87.0, y = 14.0, label = "Bay of\nBengal",
+           fontface = "italic", colour = "steelblue4", size = 3.2) +
+  # study area
+  annotate("rect", xmin = 73.8, xmax = 76.1, ymin = 13.1, ymax = 15.4,
+           fill = NA, colour = "red", linewidth = 1) +
+  coord_quickmap(xlim = c(66, 90), ylim = c(6, 30), expand = FALSE) +
+  labs(title = "A) Study area in India",
+       x = "Longitude (°E)", y = "Latitude (°N)") +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = "#dbe9f6"))   # sea light blue, as in map B
+
+p_location
+```
+### 4.4 Maps together
+
+```{r, fig.width = 12, fig.height = 6}
+map_all <- arrangeGrob(p_location, p_main, ncol = 2, widths = c(1, 2)) #putting location and map of India to one plot
+
+zoom_lines <- gList(
+  linesGrob(x = c(0.160, 0.429), y = c(0.446, 0.944), gp = gpar(col = "red", lwd = 2)),
+  linesGrob(x = c(0.160, 0.429), y = c(0.388, 0.076), gp = gpar(col = "red", lwd = 2))
+)
+
+map_zoom <- grobTree(map_all, zoom_lines)   # maps + lines as one figure
+
+grid.newpage()
+grid.draw(map_zoom)
+```
+Saving the map
+```{r}
+#save for the presentation (same size as fig.width / fig.height above)
+ggsave("figures/01_map_plots.png", map_zoom, width = 12, height = 6, dpi = 320)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
